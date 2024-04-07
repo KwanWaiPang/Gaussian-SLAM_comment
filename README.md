@@ -1,4 +1,4 @@
-[comment]: <> (# Gaussian Splatting SLAM)
+[comment]: <> (# Gaussian-SLAM)
 
 <!-- PROJECT LOGO -->
 
