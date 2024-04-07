@@ -84,7 +84,7 @@ def update_config_with_args(config, args):
         config["tracking"]["cam_trans_lr"] = args.track_cam_trans_lr
     return config
 
-
+# 主函数
 if __name__ == "__main__":
     args = get_args()
     config = load_config(args.config_path) # load config from yaml file(就是导入系列参数文件~)
