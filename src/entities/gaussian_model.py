@@ -53,7 +53,7 @@ class GaussianModel:
         self.percent_dense = 0
         self.spatial_lr_scale = 1
         self.setup_functions()
-        self.isotropic = isotropic
+        self.isotropic = isotropic #默认为False
 
     def restore_from_params(self, params_dict, training_args):
         self.training_setup(training_args)

@@ -6,19 +6,19 @@ import open3d as o3d
 import torch
 from gaussian_rasterizer import GaussianRasterizationSettings, GaussianRasterizer
 
-
+# 目的是设置随机数生成器的种子，以确保在多次运行中产生的随机数是可重现的
 def setup_seed(seed: int) -> None:
     """ Sets the seed for generating random numbers to ensure reproducibility across multiple runs.
     Args:
         seed: The seed value to set for random number generators in torch, numpy, and random.
     """
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
-    os.environ["PYTHONHASHSEED"] = str(seed)
-    np.random.seed(seed)
-    random.seed(seed)
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
+    torch.manual_seed(seed) #设置了PyTorch的随机数生成器的种子为给定的seed值。
+    torch.cuda.manual_seed_all(seed) #设置了PyTorch的CUDA随机数生成器的种子为给定的seed值。如果你在使用GPU进行计算，这一步会确保GPU上的随机数生成也是可重现的。
+    os.environ["PYTHONHASHSEED"] = str(seed) #设置了Python中哈希函数的种子
+    np.random.seed(seed) #设置了NumPy的随机数生成器的种子为给定的seed值
+    random.seed(seed) #设置了Python标准库中random模块的随机数生成器的种子
+    torch.backends.cudnn.deterministic = True #设置了PyTorch的CuDNN模块的确定性模式为True。这个设置确保了在使用CuDNN时的一致性，尤其是在涉及卷积神经网络时。
+    torch.backends.cudnn.benchmark = False #禁用了PyTorch的CuDNN模块的基准模式。在基准模式下，CuDNN会尝试找到最适合当前配置的卷积算法，但这可能会导致不同运行之间结果的差异。
 
 
 def torch2np(tensor: torch.Tensor) -> np.ndarray:

@@ -105,9 +105,10 @@ if __name__ == "__main__":
         wandb.run.log_code(".", include_fn=lambda path: path.endswith(".py"))
 
     setup_seed(config["seed"])
-    gslam = GaussianSLAM(config)
-    gslam.run()
-
+    gslam = GaussianSLAM(config) # 生成一个GaussianSLAM对象（初始化的时候读取数据）
+    gslam.run() # 运行GaussianSLAM对象的run方法
+    
+    # 下面进行评估（验证）
     evaluator = Evaluator(gslam.output_path, gslam.output_path / "config.yaml")
     evaluator.run()
     if config["use_wandb"]:

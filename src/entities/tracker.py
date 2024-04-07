@@ -105,6 +105,7 @@ class Tracker(object):
 
         return color_loss, depth_loss, rendered_color, rendered_depth, alpha_mask
 
+    # 更新当前帧的相机姿态估计
     def track(self, frame_id: int, gaussian_model: GaussianModel, prev_c2ws: np.ndarray) -> np.ndarray:
         """
         Updates the camera pose estimation for the current frame based on the provided image and depth, using either ground truth poses,

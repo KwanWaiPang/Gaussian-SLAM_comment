@@ -32,7 +32,7 @@ class GaussianSLAM(object):
 
         self.scene_name = config["data"]["scene_name"]
         self.dataset_name = config["dataset_name"]
-        self.dataset = get_dataset(config["dataset_name"])({**config["data"], **config["cam"]})
+        self.dataset = get_dataset(config["dataset_name"])({**config["data"], **config["cam"]})# 读取数据集
 
         n_frames = len(self.dataset)
         frame_ids = list(range(n_frames))
@@ -122,24 +122,33 @@ class GaussianSLAM(object):
         self.submap_id += 1
         return gaussian_model
 
+    # 执行Gaussian-SLAM的tracking与mapping
     def run(self) -> None:
         """ Starts the main program flow for Gaussian-SLAM, including tracking and mapping. """
+
+        # 目的是设置随机数生成器的种子，以确保在多次运行中产生的随机数是可重现的
         setup_seed(self.config["seed"])
+        
+        # 初始化高斯模型
         gaussian_model = GaussianModel(0)
+        # 设置高斯模型的训练参数
         gaussian_model.training_setup(self.opt)
-        self.submap_id = 0
-
+        self.submap_id = 0 # 子地图的id，初始化为0
+        
+        # 遍历所有帧
         for frame_id in range(len(self.dataset)):
-
-            if frame_id in [0, 1]:
-                estimated_c2w = self.dataset[frame_id][-1]
-            else:
+            
+            # 进行tracker跟踪，得到估计的相机位姿（self.estimated_c2ws）
+            if frame_id in [0, 1]: # 如果是第一帧或第二帧
+                estimated_c2w = self.dataset[frame_id][-1] # 读取真实的相机位姿
+            else:# 如果不是第一帧或第二帧，则使用Tracker跟踪
                 estimated_c2w = self.tracker.track(
                     frame_id, gaussian_model,
                     torch2np(self.estimated_c2ws[torch.tensor([0, frame_id - 2, frame_id - 1])]))
-            self.estimated_c2ws[frame_id] = np2torch(estimated_c2w)
+            self.estimated_c2ws[frame_id] = np2torch(estimated_c2w) #Converts a NumPy ndarray to a PyTorch tensor
 
             # Reinitialize gaussian model for new segment
+            # 如果需要开始新的子地图，则保存当前子地图的参数，并重置高斯模型
             if self.should_start_new_submap(frame_id):
                 save_dict_to_ckpt(self.estimated_c2ws[:frame_id + 1], "estimated_c2w.ckpt", directory=self.output_path)
                 gaussian_model = self.start_new_submap(frame_id, gaussian_model)
