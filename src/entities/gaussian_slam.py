@@ -185,11 +185,15 @@ class GaussianSLAM(object):
                 
                 # 根据条件判断 new_submap 是否为真，如果 self.keyframes_info 为空则为真，否则为假。
                 new_submap = not bool(self.keyframes_info)
+                
+                # 将当前帧的ID、估计的相机位姿、高斯模型以及 是否新的submap的flag 传递给 Mapper 的 map 函数，得到优化参数字典 opt_dict。
                 opt_dict = self.mapper.map(frame_id, estimate_c2w, gaussian_model, new_submap)
+                # 输出的opt_dict为包含优化过程统计信息的词典
 
                 # Keyframes info update
                 self.keyframes_info[frame_id] = {
                     "keyframe_id": len(self.keyframes_info.keys()),
                     "opt_dict": opt_dict
                 }
+        # 保存最后一帧的估计相机位姿
         save_dict_to_ckpt(self.estimated_c2ws[:frame_id + 1], "estimated_c2w.ckpt", directory=self.output_path)

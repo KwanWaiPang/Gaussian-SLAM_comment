@@ -45,28 +45,49 @@ class Mapper(object):
         self.opt = OptimizationParams(ArgumentParser(description="Training script parameters"))
         self.keyframes = []
 
+    # 计算一个二进制掩码，用于确定关键帧中应该生成新的高斯模型的区域
     def compute_seeding_mask(self, gaussian_model: GaussianModel, keyframe: dict, new_submap: bool) -> np.ndarray:
         """
         Computes a binary mask to identify regions within a keyframe where new Gaussian models should be seeded
         based on alpha masks or color gradient
         Args:
-            gaussian_model: The current submap
-            keyframe (dict): Keyframe dict containing color, depth, and render settings
+            gaussian_model: The current submap（当前子地图对应的高斯模型）
+            keyframe (dict): Keyframe dict containing color, depth, and render settings （包含了颜色、深度和渲染设置的关键帧字典）
             new_submap (bool): A boolean indicating whether the seeding is occurring in current submap or a new submap
         Returns:
             np.ndarray: A binary mask of shpae (H, W) indicates regions suitable for seeding new 3D Gaussian models
         """
+        # 初始化了一个变量 seeding_mask，用于存储生成的种子点掩码。
         seeding_mask = None
+        
+        # 如果是新的子地图，那么就使用几何边缘掩码
         if new_submap:
+            # 将关键帧的颜色图像转换为 numpy 数组，并将值缩放到 [0, 255] 的范围内。
             color_for_mask = (torch2np(keyframe["color"].permute(1, 2, 0)) * 255).astype(np.uint8)
+
+            # 调用 geometric_edge_mask 函数生成几何边缘掩码，用于确定适合生成新高斯模型的区域。
+            # 函数中实现的为提取边缘轮廓,并对轮廓进行膨胀处理
             seeding_mask = geometric_edge_mask(color_for_mask, RGB=True)
-        else:
+        else: #如果不是新的子地图，那么就执行下面的操作
+            # 调用 render_gaussian_model 函数渲染当前子地图，并得到渲染结果的字典。
+            # 返回渲染后的颜色、深度、半径,2D均值与alpha等信息
             render_dict = render_gaussian_model(gaussian_model, keyframe["render_settings"])
+
+            # 根据渲染的结果，生成 alpha 掩码和深度误差掩码。
+            # 根据渲染结果中的 alpha 通道，生成了一个 alpha 掩码。这个掩码是根据设定的阈值 self.alpha_thre 对 alpha 值进行比较而得到的。
             alpha_mask = (render_dict["alpha"] < self.alpha_thre)
+
+            # 从关键帧中获取了深度图像，并将其转换为张量格式。
             gt_depth_tensor = keyframe["depth"][None]
+            # 计算了深度误差，即关键帧深度图像与渲染深度图像之间的差异。同时，根据关键帧深度图像中大于零的部分生成了一个掩码，以忽略无效深度值的影响。
             depth_error = torch.abs(gt_depth_tensor - render_dict["depth"]) * (gt_depth_tensor > 0)
+            # 根据深度误差和阈值条件，生成了深度误差掩码。这个掩码用于确定渲染深度值大于关键帧深度值且深度误差大于阈值的区域。
             depth_error_mask = (render_dict["depth"] > gt_depth_tensor) * (depth_error > 40 * depth_error.median())
+
+            # 将 alpha 掩码和深度误差掩码进行逻辑或操作，得到最终的种子点掩码。
             seeding_mask = alpha_mask | depth_error_mask
+
+            # 将种子点掩码转换为 numpy 数组格式。
             seeding_mask = torch2np(seeding_mask[0])
         return seeding_mask
 
@@ -199,6 +220,7 @@ class Mapper(object):
         print("Gaussian model size", gaussian_model.get_size())
         return new_pts_ids.shape[0]
 
+    # 用于执行地图构建的过程
     def map(self, frame_id: int, estimate_c2w: np.ndarray, gaussian_model: GaussianModel, is_new_submap: bool) -> dict:
         """ Calls out the mapping process described in paragraph 3.2
         The process goes as follows: seed new gaussians -> add to the submap -> optimize the submap
@@ -208,20 +230,29 @@ class Mapper(object):
             gaussian_model (GaussianModel): The current Gaussian model of the submap
             is_new_submap (bool): A boolean flag indicating whether the current frame initiates a new submap
         Returns:
-            opt_dict: Dictionary with statistics about the optimization process
+            opt_dict: Dictionary with statistics about the optimization process （包含优化过程统计信息的词典）
         """
 
+        # 从数据集中获取当前帧对应的的真实颜色和深度图像数据。
         _, gt_color, gt_depth, _ = self.dataset[frame_id]
+        # 计算了相机到世界坐标系的逆变换矩阵
         estimate_w2c = np.linalg.inv(estimate_c2w)
 
+        # 创建了一个颜色转换对象 color_transform，可以用于将图像转换为张量形式，方便后续在 PyTorch 模型中使用。
         color_transform = torchvision.transforms.ToTensor()
+
+        # 生成关键帧
+        # 所谓的关键帧是字典的形式，包含颜色、深度和渲染设置
         keyframe = {
-            "color": color_transform(gt_color).cuda(),
-            "depth": np2torch(gt_depth, device="cuda"),
-            "render_settings": get_render_settings(
+            "color": color_transform(gt_color).cuda(), # 将真实颜色图像转换为张量形式
+            "depth": np2torch(gt_depth, device="cuda"), # 将真实深度图像转换为张量形式
+            "render_settings": get_render_settings( # 获取渲染设置参数
                 self.dataset.width, self.dataset.height, self.dataset.intrinsics, estimate_w2c)}
 
+        # 计算种子掩码，应该是用于标记新的高斯模型的位置
         seeding_mask = self.compute_seeding_mask(gaussian_model, keyframe, is_new_submap)
+
+        # 初始化3D高斯点云
         pts = self.seed_new_gaussians(
             gt_color, gt_depth, self.dataset.intrinsics, estimate_c2w, seeding_mask, is_new_submap)
 

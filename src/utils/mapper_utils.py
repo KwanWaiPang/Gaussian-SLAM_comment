@@ -267,25 +267,34 @@ def exceeds_motion_thresholds(current_c2w: torch.Tensor, last_submap_c2w: torch.
     exceeds_thresholds = (translation_diff > trans_thre) or torch.any(rot_euler_diff_deg > rot_thre)
     return exceeds_thresholds.item()
 
-
+# 用于计算一个RGB图像的边缘掩码，采用了几何边缘的方法
 def geometric_edge_mask(rgb_image: np.ndarray, dilate: bool = True, RGB: bool = False) -> np.ndarray:
     """ Computes an edge mask for an RGB image using geometric edges.
     Args:
-        rgb_image: The RGB image.
-        dilate: Whether to dilate the edges.
+        rgb_image: The RGB image.(是一个numpy数组，表示RGB图像。)
+        dilate: Whether to dilate the edges.(是否要扩大边缘(对边缘进行膨胀操作),默认为True)
         RGB: Indicates if the image format is RGB (True) or BGR (False).
     Returns:
         An edge mask of the input image.
     """
     # Convert the image to grayscale as Canny edge detection requires a single channel image
+    # 将输入的RGB图像转换为灰度图像。如果输入图像是RGB格式，则使用 cv2.COLOR_RGB2GRAY 进行转换；如果是BGR格式，则使用 cv2.COLOR_BGR2GRAY 进行转换。
     gray_image = cv2.cvtColor(
         rgb_image, cv2.COLOR_BGR2GRAY if not RGB else cv2.COLOR_RGB2GRAY)
+    
+    # 检查灰度图像的数据类型，如果不是 np.uint8 类型，则将其转换为 np.uint8 类型。
     if gray_image.dtype != np.uint8:
         gray_image = gray_image.astype(np.uint8)
+    
+    # 利用Canny边缘检测算法计算图像的边缘
+    # threshold1 和 threshold2 是两个阈值参数，用于控制边缘的检测灵敏度；apertureSize 是 Sobel 滤波器的尺寸；L2gradient 表示使用更精确的L2范数计算梯度。
     edges = cv2.Canny(gray_image, threshold1=100, threshold2=200, apertureSize=3, L2gradient=True)
+
     # Define the structuring element for dilation, you can change the size for a thicker/thinner mask
-    if dilate:
+    if dilate:#如果 dilate 为 True，则对边缘进行膨胀操作
+        # 创建一个2x2的矩形结构元素 kernel 用于膨胀操作。
         kernel = np.ones((2, 2), np.uint8)
+        # 调用 cv2.dilate() 函数对边缘图像进行膨胀操作，以加粗边缘。
         edges = cv2.dilate(edges, kernel, iterations=1)
     return edges
 

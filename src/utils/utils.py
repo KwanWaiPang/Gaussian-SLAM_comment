@@ -87,9 +87,13 @@ def get_render_settings(w, h, intrinsics, w2c, near=0.01, far=100, sh_degree=0):
     Returns:
         GaussianRasterizationSettings: Configured settings for Gaussian rasterization.
     """
+    # 从相机内参中提取fx, fy, cx, cy
     fx, fy, cx, cy = intrinsics[0, 0], intrinsics[1,
                                                   1], intrinsics[0, 2], intrinsics[1, 2]
+    # 相机到世界坐标系的变换矩阵
     w2c = torch.tensor(w2c).cuda().float()
+
+    # 从相机外参中提取相机的中心点
     cam_center = torch.inverse(w2c)[:3, 3]
     viewmatrix = w2c.transpose(0, 1)
     opengl_proj = torch.tensor([[2 * fx / w, 0.0, -(w - 2 * cx) / w, 0.0],
@@ -99,6 +103,8 @@ def get_render_settings(w, h, intrinsics, w2c, near=0.01, far=100, sh_degree=0):
                                 [0.0, 0.0, 1.0, 0.0]], device='cuda').float().transpose(0, 1)
     full_proj_matrix = viewmatrix.unsqueeze(
         0).bmm(opengl_proj.unsqueeze(0)).squeeze(0)
+    
+    # 返回一个GaussianRasterizationSettings对象
     return GaussianRasterizationSettings(
         image_height=h,
         image_width=w,
@@ -121,12 +127,14 @@ def render_gaussian_model(gaussian_model, render_settings,
     """
     Renders a Gaussian model with specified rendering settings, allowing for
     optional overrides of various model parameters.
+    (用于渲染高斯模型,并返回渲染的结果)
 
     Args:
-        gaussian_model: A Gaussian model object that provides methods to get
+        gaussian_model(高斯模型): A Gaussian model object that provides methods to get
             various properties like xyz coordinates, opacity, features, etc.
-        render_settings: Configuration settings for the GaussianRasterizer.
-        override_means_3d (Optional): If provided, these values will override
+        render_settings(渲染的参数设置): Configuration settings for the GaussianRasterizer.
+        (下面为可选的参数用于覆盖高斯模型的各种属性。)
+        override_means_3d (Optional): If provided, these values will override(覆盖)
             the 3D mean values from the Gaussian model.
         override_means_2d (Optional): If provided, these values will override
             the 2D mean values. Defaults to zeros if not provided.
@@ -143,13 +151,16 @@ def render_gaussian_model(gaussian_model, render_settings,
         of the Gaussian model. The keys of this dictionary are 'color', 'depth',
         'radii', and 'means2D', each mapping to their respective rendered values.
     """
+    # 创建了一个GaussianRasterizer的对象renderer，用于执行渲染操作
     renderer = GaussianRasterizer(raster_settings=render_settings)
 
+    # 先检查是否有提供覆盖的3D均值(override_means_3d)，如果没有提供，则使用高斯模型的原始均值(gaussian_model.get_xyz())；否则使用提供的覆盖值。
     if override_means_3d is None:
         means3D = gaussian_model.get_xyz()
     else:
         means3D = override_means_3d
 
+    # 检查是否有提供覆盖的2D均值(override_means_2d)，如果没有提供，则创建一个与means3D相同形状的全零张量；否则使用提供的覆盖值。
     if override_means_2d is None:
         means2D = torch.zeros_like(
             means3D, dtype=means3D.dtype, requires_grad=True, device="cuda")
@@ -157,17 +168,20 @@ def render_gaussian_model(gaussian_model, render_settings,
     else:
         means2D = override_means_2d
 
+    # 没有提供覆盖的不透明度(override_opacities)，则使用高斯模型的原始不透明度(gaussian_model.get_opacity())；否则使用提供的覆盖值。
     if override_opacities is None:
         opacities = gaussian_model.get_opacity()
     else:
         opacities = override_opacities
 
+    # 如果提供了覆盖的颜色(override_colors)，则直接使用提供的值，否则通过调用gaussian_model.get_features()获取颜色。
     shs, colors_precomp = None, None
     if override_colors is not None:
         colors_precomp = override_colors
     else:
         shs = gaussian_model.get_features()
 
+    # 构建渲染参数(render_args)，包括3D均值、2D均值、不透明度、颜色、缩放、旋转等。
     render_args = {
         "means3D": means3D,
         "means2D": means2D,
@@ -178,6 +192,8 @@ def render_gaussian_model(gaussian_model, render_settings,
         "rotations": gaussian_model.get_rotation() if override_rotations is None else override_rotations,
         "cov3D_precomp": None
     }
+    # 调用renderer的方法，执行渲染操作，返回渲染结果。
+    # 将渲染结果存储在color、depth、alpha和radii变量中，并将这些结果以字典形式返回。
     color, depth, alpha, radii = renderer(**render_args)
 
     return {"color": color, "depth": depth, "radii": radii, "means2D": means2D, "alpha": alpha}
