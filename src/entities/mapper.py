@@ -91,6 +91,7 @@ class Mapper(object):
             seeding_mask = torch2np(seeding_mask[0])
         return seeding_mask
 
+    # 基于给定的颜色和深度图像、相机内参、估计的相机到世界变换、种子点掩码以及一个标志（表示是否为新子地图），在图像中生成新的高斯模型的均值点。
     def seed_new_gaussians(self, gt_color: np.ndarray, gt_depth: np.ndarray, intrinsics: np.ndarray,
                            estimate_c2w: np.ndarray, seeding_mask: np.ndarray, is_new_submap: bool) -> np.ndarray:
         """
@@ -103,10 +104,11 @@ class Mapper(object):
             estimate_c2w: The estimated camera-to-world transformation matrix as a numpy array with shape (4, 4).
             seeding_mask: A binary mask indicating where to seed new Gaussians, with shape (H, W).
             is_new_submap: Flag indicating whether the seeding is for a new submap (True) or an existing submap (False).
-        Returns:
+        Returns(返回的就是初始化的3D高斯点的坐标,形状为(N,3)):
             np.ndarray: An array of 3D points where new Gaussians will be initialized, with shape (N, 3)
 
         """
+        # 创建了一个点云。该点云表示了图像中的三维点坐标以及对应的点的颜色。
         pts = create_point_cloud(gt_color, 1.005 * gt_depth, intrinsics, estimate_c2w)
         flat_gt_depth = gt_depth.flatten()
         non_zero_depth_mask = flat_gt_depth > 0.  # need filter if zero depth pixels in gt_depth
@@ -253,6 +255,7 @@ class Mapper(object):
         seeding_mask = self.compute_seeding_mask(gaussian_model, keyframe, is_new_submap)
 
         # 初始化3D高斯点云
+        # pts就是对应的初始化的3D高斯点的坐标
         pts = self.seed_new_gaussians(
             gt_color, gt_depth, self.dataset.intrinsics, estimate_c2w, seeding_mask, is_new_submap)
 

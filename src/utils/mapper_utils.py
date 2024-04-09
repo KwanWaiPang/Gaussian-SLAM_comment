@@ -314,6 +314,7 @@ def calc_psnr(img1: torch.Tensor, img2: torch.Tensor) -> torch.Tensor:
 def create_point_cloud(image: np.ndarray, depth: np.ndarray, intrinsics: np.ndarray, pose: np.ndarray) -> np.ndarray:
     """
     Creates a point cloud from an image, depth map, camera intrinsics, and pose.
+    (从图像,深度图,内参以及pose中获取点云)
 
     Args:
         image: The RGB image of shape (H, W, 3)
@@ -323,23 +324,44 @@ def create_point_cloud(image: np.ndarray, depth: np.ndarray, intrinsics: np.ndar
     Returns:
         A point cloud of shape (N, 6) with last dimension representing (x, y, z, r, g, b)
     """
+    # 获取深度图的高度和宽度
     height, width = depth.shape
+
     # Create a mesh grid of pixel coordinates
+    # 生成一个网格坐标系(为整数值)，其中 u 和 v 分别表示图像的宽度和高度
     u, v = np.meshgrid(np.arange(width), np.arange(height))
+
     # Convert pixel coordinates to camera coordinates
+    # 将像素坐标转换为相机坐标(根据相机内参和深度图)
     x = (u - intrinsics[0, 2]) * depth / intrinsics[0, 0]
     y = (v - intrinsics[1, 2]) * depth / intrinsics[1, 1]
     z = depth
+
     # Stack the coordinates together
+    # 将坐标沿着最后一个轴（也就是沿着列）进行堆叠。
+    # points 将会是一个二维数组，其中每一行代表一个点的坐标。每一行包含了四个元素，分别代表了该点的 x 坐标、y 坐标、z 坐标以及齐次坐标表示中的 1。
     points = np.stack((x, y, z, np.ones_like(z)), axis=-1)
+
     # Reshape the coordinates for matrix multiplication
+    # 将points数组重新塑造成一个二维数组，其中每行包含4个元素。
+    # 参数-1的作用是告诉reshape函数根据数组的总元素数量自动计算该轴的长度，这样可以保证数组的总元素数量不变。在这个例子中，由于每个点的坐标由四个元素表示（x、y、z、齐次坐标1），因此将数组重新塑造为每行包含4个元素的形状。这样做的目的可能是为了方便对坐标进行处理或者是与其他格式相匹配。
     points = points.reshape(-1, 4)
+
     # Transform points to world coordinates
+    # 将点从相机坐标系转换到世界坐标系
     posed_points = pose @ points.T
+    
+    # 对变换后的坐标进行切片操作。
+    # 使用 [:, :3] 对数组进行切片操作，保留每个点的前三个元素，即去掉齐次坐标中的最后一个元素。
+    # 这样得到的 posed_points 数组就是每个点经过变换后的三维坐标。
     posed_points = posed_points.T[:, :3]
+
     # Flatten the image to get colors for each point
+    # 将图像展平为一个一维数组，其中每个元素代表一个像素的颜色。
     colors = image.reshape(-1, 3)
+
     # Concatenate posed points with their corresponding color
+    # 将变换后的点坐标和颜色进行拼接，得到一个点云。
     point_cloud = np.concatenate((posed_points, colors), axis=-1)
 
     return point_cloud
