@@ -161,11 +161,14 @@ class GaussianModel:
 
     def training_setup(self, training_args):
         self.percent_dense = training_args.percent_dense
+
+        # 创建了两个与位置参数相关的张量，用于存储位置参数的梯度累积和分母。
         self.xyz_gradient_accum = torch.zeros(
             (self.get_xyz().shape[0], 1), device="cuda"
         )
         self.denom = torch.zeros((self.get_xyz().shape[0], 1), device="cuda")
 
+        # 定义了一个列表 params，包含了要优化的参数以及它们的学习率。每个参数都是一个字典，包含了参数张量、学习率和名称。具体参数包括位置参数 xyz、特征参数 features_dc 和 features_rest、不透明度参数 opacity、缩放参数 scaling 和旋转参数 rotation。
         params = [
             {"params": [self._xyz], "lr": training_args.position_lr_init, "name": "xyz"},
             {"params": [self._features_dc], "lr": training_args.feature_lr, "name": "f_dc"},
@@ -175,7 +178,9 @@ class GaussianModel:
             {"params": [self._rotation], "lr": training_args.rotation_lr, "name": "rotation"},
         ]
 
+        # 创建了一个优化器对象，用于优化 params 中定义的参数。学习率初始值为0，因为之后会在优化器的调度器中动态地调整学习率。
         self.optimizer = torch.optim.Adam(params, lr=0.0, eps=1e-15)
+        # 设置了位置参数的学习率调度器参数。调度器参数包括初始学习率、最终学习率、延迟倍数和最大步数等。
         self.xyz_scheduler_args = get_expon_lr_func(
             lr_init=training_args.position_lr_init * self.spatial_lr_scale,
             lr_final=training_args.position_lr_final * self.spatial_lr_scale,

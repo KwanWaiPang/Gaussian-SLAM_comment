@@ -248,7 +248,7 @@ def rotation_to_euler(R: torch.Tensor) -> torch.Tensor:
 
     return torch.tensor([x, y, z]) * (180 / np.pi)
 
-
+# 获取两帧之间的相对位姿
 def exceeds_motion_thresholds(current_c2w: torch.Tensor, last_submap_c2w: torch.Tensor,
                               rot_thre: float = 50, trans_thre: float = 0.5) -> bool:
     """  Checks if a camera motion exceeds certain rotation and translation thresholds
