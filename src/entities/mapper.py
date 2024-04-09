@@ -161,8 +161,9 @@ class Mapper(object):
         Returns:
             losses_dict: Dictionary with the optimization statistics
         """
-
+        # 初始化迭代次数
         iteration = 0
+        # 初始化损失字典（记录loss）
         losses_dict = {}
 
         current_frame_iters = self.current_view_opt_iterations * iterations
@@ -173,19 +174,27 @@ class Mapper(object):
             keyframe_id = np.random.choice(np.arange(len(keyframes)), p=distribution)
 
             frame_id, keyframe = keyframes[keyframe_id]
+            # 调用 render_gaussian_model 函数，渲染当前子地图，并得到渲染结果的字典。
             render_pkg = render_gaussian_model(gaussian_model, keyframe["render_settings"])
 
+            # 获取渲染后的图像、深度图
             image, depth = render_pkg["color"], render_pkg["depth"]
+            # 获取真实的颜色图像和深度图像
             gt_image = keyframe["color"]
             gt_depth = keyframe["depth"]
 
             mask = (gt_depth > 0) & (~torch.isnan(depth)).squeeze(0)
+            # 计算颜色的loss
             color_loss = (1.0 - self.opt.lambda_dssim) * l1_loss(
                 image[:, mask], gt_image[:, mask]) + self.opt.lambda_dssim * (1.0 - ssim(image, gt_image))
 
+            # 计算深度的loss
             depth_loss = l1_loss(depth[:, mask], gt_depth[mask])
+            # 计算正则化的loss
             reg_loss = isotropic_loss(gaussian_model.get_scaling())
+            # 计算总的loss
             total_loss = color_loss + depth_loss + reg_loss
+            # 反向传播，求梯度
             total_loss.backward()
 
             losses_dict[frame_id] = {"color_loss": color_loss.item(),
@@ -197,7 +206,7 @@ class Mapper(object):
                 if iteration == iterations // 2 or iteration == iterations:
                     prune_mask = (gaussian_model.get_opacity()
                                   < self.pruning_thre).squeeze()
-                    gaussian_model.prune_points(prune_mask)
+                    gaussian_model.prune_points(prune_mask) #删除不重要的点
 
                 # Optimizer step
                 if iteration < iterations:
@@ -258,7 +267,7 @@ class Mapper(object):
         gaussian_model._features_rest.requires_grad = False
         # 打印当前高斯模型的大小。
         print("Gaussian model size", gaussian_model.get_size())
-        
+
         # 返回添加到子地图中的新点的数量。
         return new_pts_ids.shape[0]
 
@@ -309,6 +318,8 @@ class Mapper(object):
 
         # 调用了 grow_submap() 函数，对子地图进行了增长。该函数根据提供的参数（深度图像、相机到世界变换、当前子地图的高斯模型、初始化的3D高斯点的坐标及颜色、是否过滤点云），对子地图进行了扩展和优化。
         new_pts_num = self.grow_submap(gt_depth, estimate_c2w, gaussian_model, pts, filter_cloud)
+        # 1、获取当前高斯点在当前视觉范围内的位置。
+        # 2、然后基于新的点是否临近1中的这些高斯点，添加新的点到高斯模型中
 
         max_iterations = self.iterations
         if is_new_submap: #如果是新的子地图，那么就跟新子地图的迭代次数
