@@ -214,6 +214,7 @@ class Mapper(object):
                     pts: np.ndarray, filter_cloud: bool) -> int:
         """
         Expands the submap by integrating new points from the current keyframe
+        （通过新输入的点pts来扩展子地图）
         Args:
             gt_depth: The ground truth depth map for the current keyframe, as a 2D numpy array.
             estimate_c2w: The estimated camera-to-world transformation matrix for the current keyframe of shape (4x4)
@@ -224,21 +225,41 @@ class Mapper(object):
         Returns:
             int: The number of points added to the submap
         """
+        # 获取当前子地图中高斯点的坐标。
         gaussian_points = gaussian_model.get_xyz()
+
+        # 计算相机视锥体的角点（就是相机可视的3D范围的点），使用地面真实深度图、估计的相机到世界变换矩阵和相机内参。
         camera_frustum_corners = compute_camera_frustum_corners(gt_depth, estimate_c2w, self.dataset.intrinsics)
+
+        # 根据高斯点和相机视锥体的角点（就是相机可视的3D范围的点），计算可重用的点的索引，使用CUDA加速。
+        # 当前的高斯点，在当前帧的视锥体内的点的索引
         reused_pts_ids = compute_frustum_point_ids(
             gaussian_points, np2torch(camera_frustum_corners), device="cuda")
+        
+        # 计算新的点的索引，使用新点pts、视觉范围内的高斯点gaussian_points[reused_pts_ids]以及radius。并放到CUDA上。
+        # 根据新的点pts，以及视觉范围内以及存在的点，通过检测他们的距离（是否有邻居点）等策略，确定哪些点应该添加
         new_pts_ids = compute_new_points_ids(gaussian_points[reused_pts_ids], np2torch(pts[:, :3]).contiguous(),
                                              radius=self.new_points_radius, device="cuda")
+        # 将新点的索引从PyTorch张量转换为NumPy数组
         new_pts_ids = torch2np(new_pts_ids)
-        if new_pts_ids.shape[0] > 0:
+        if new_pts_ids.shape[0] > 0:#如果有新的点被添加到子地图中：
+            # 创建点云对象 cloud_to_add，其中包含新的点的坐标和颜色。
             cloud_to_add = np2ptcloud(pts[new_pts_ids, :3], pts[new_pts_ids, 3:] / 255.0)
+
+            # 如果需要对点云进行过滤，则应用统计异常值移除过滤器。
             if filter_cloud:
                 cloud_to_add, _ = cloud_to_add.remove_statistical_outlier(nb_neighbors=40, std_ratio=2.0)
+            
+            # 将点云集成到高斯模型中。
             gaussian_model.add_points(cloud_to_add)
+
+        # 设置高斯模型的特征梯度为False，以防止在优化过程中对这些特征进行更新。
         gaussian_model._features_dc.requires_grad = False
         gaussian_model._features_rest.requires_grad = False
+        # 打印当前高斯模型的大小。
         print("Gaussian model size", gaussian_model.get_size())
+        
+        # 返回添加到子地图中的新点的数量。
         return new_pts_ids.shape[0]
 
     # 用于执行地图构建的过程
@@ -277,15 +298,23 @@ class Mapper(object):
         # pts就是对应的初始化的3D高斯点的坐标
         pts = self.seed_new_gaussians(
             gt_color, gt_depth, self.dataset.intrinsics, estimate_c2w, seeding_mask, is_new_submap)
+        # seed_new_gaussians函数实现的功能：
+        # 1、根据颜色图像、深度图像、相机内参、估计的相机到世界变换、获取3D点坐标及其对应的颜色
+        # 2、根据上面得到的seeding_mask，以及一定的规则，对1中获取的3D点进行采样，得到初始化的3D高斯点的坐标
 
+        # 根据数据集的类型和是否为新的子地图，设置了 filter_cloud 变量。如果数据集是 TUM_RGBD 或者 ScanNet 类型，并且不是新的子地图，那么 filter_cloud 就为 True，否则为 False。
         filter_cloud = isinstance(self.dataset, (TUM_RGBD, ScanNet)) and not is_new_submap
+        # A boolean flag indicating whether to apply filtering to the point cloud to remove outliers or noise before integrating it into the map.
+        # filter_cloud是一个布尔标志，指示在将点云集成到地图之前是否对点云应用过滤以移除异常值或噪声。
 
+        # 调用了 grow_submap() 函数，对子地图进行了增长。该函数根据提供的参数（深度图像、相机到世界变换、当前子地图的高斯模型、初始化的3D高斯点的坐标及颜色、是否过滤点云），对子地图进行了扩展和优化。
         new_pts_num = self.grow_submap(gt_depth, estimate_c2w, gaussian_model, pts, filter_cloud)
 
         max_iterations = self.iterations
-        if is_new_submap:
+        if is_new_submap: #如果是新的子地图，那么就跟新子地图的迭代次数
             max_iterations = self.new_submap_iterations
         start_time = time.time()
+        # 调用了 optimize_submap() 函数，对子地图进行了优化。该函数根据提供的参数（关键帧、当前子地图的高斯模型、迭代次数），对子地图进行了优化。
         opt_dict = self.optimize_submap([(frame_id, keyframe)] + self.keyframes, gaussian_model, max_iterations)
         optimization_time = time.time() - start_time
         print("Optimization time: ", optimization_time)

@@ -22,7 +22,7 @@ def compute_opt_views_distribution(keyframes_num, iterations_num, current_frame_
     prob /= prob.sum()
     return prob
 
-
+# 就是获取相机可视的3D范围的点
 def compute_camera_frustum_corners(depth_map: np.ndarray, pose: np.ndarray, intrinsics: np.ndarray) -> np.ndarray:
     """ Computes the 3D coordinates of the camera frustum corners based on the depth map, pose, and intrinsics.
     Args:
@@ -32,9 +32,16 @@ def compute_camera_frustum_corners(depth_map: np.ndarray, pose: np.ndarray, intr
     Returns:
         An array of 3D coordinates for the frustum corners.
     """
+    # 首先，获取深度图的高度和宽度
     height, width = depth_map.shape
+
+    # 对深度图进行处理，将深度值大于0的像素点提取出来，即去除了无效深度值（例如深度值为0的部分）。
     depth_map = depth_map[depth_map > 0]
+
+    # 计算提取出的深度值的最小值和最大值，分别表示相机视锥体的最近点和最远点。
     min_depth, max_depth = depth_map.min(), depth_map.max()
+
+    # 构建一个包含相机视锥体角点的初始数组corners，其中每一行对应一个角点的坐标。这里包含了视锥体的四个底面角点和四个顶面角点。
     corners = np.array(
         [
             [0, 0, min_depth],
@@ -47,11 +54,19 @@ def compute_camera_frustum_corners(depth_map: np.ndarray, pose: np.ndarray, intr
             [width, height, max_depth],
         ]
     )
+
+    # 根据相机内参，通过逆投影计算角点的三维坐标。具体来说，通过将图像坐标转换为归一化平面坐标，然后再转换为相机坐标系下的三维坐标。这里使用了相机内参矩阵中的焦距和主点信息。
     x = (corners[:, 0] - intrinsics[0, 2]) * corners[:, 2] / intrinsics[0, 0]
     y = (corners[:, 1] - intrinsics[1, 2]) * corners[:, 2] / intrinsics[1, 1]
     z = corners[:, 2]
+
+    # 将计算得到的三维角点坐标堆叠成一个矩阵，每一列代表一个角点的坐标，并添加齐次坐标的最后一维。
     corners_3d = np.vstack((x, y, z, np.ones(x.shape[0]))).T
+
+    # 根据相机位姿，将角点从相机坐标系转换到世界坐标系。
     corners_3d = pose @ corners_3d.T
+
+    # 最后，返回转换后的角点坐标，但是去除齐次坐标的最后一维，得到真实的三维坐标。
     return corners_3d.T[:, :3]
 
 
@@ -138,7 +153,7 @@ def points_inside_frustum_mask(points: torch.Tensor, frustum_planes: torch.Tenso
     plane_product = torch.cat([points, ones], axis=1) @ frustum_planes.T
     return torch.all(plane_product <= 0, axis=1)
 
-
+# 这个函数的目的是确定哪些点位于相机视锥体内，以便在进行后续的处理时，只对位于视锥体内的点进行计算，从而提高计算效率。
 def compute_frustum_point_ids(pts: torch.Tensor, frustum_corners: torch.Tensor, device: str = "cuda"):
     """ Identifies points within the camera frustum, optimizing for computation on a specified device.
     Args:
@@ -146,8 +161,10 @@ def compute_frustum_point_ids(pts: torch.Tensor, frustum_corners: torch.Tensor, 
         frustum_corners: A tensor of 3D coordinates representing the corners of the frustum.
         device: The computation device ("cuda" or "cpu").
     Returns:
-        Indices of points lying inside the frustum.
+        Indices of points lying inside the frustum.（返回在视角范围内的点的索引）
     """
+
+    # 如果输入的pts张量的行数为0，则直接返回一个空的张量
     if pts.shape[0] == 0:
         return torch.tensor([], dtype=torch.int64, device=device)
     # Broad phase
@@ -203,26 +220,34 @@ def compute_new_points_ids(frustum_points: torch.Tensor, new_pts: torch.Tensor,
     Returns:
         Indicies of the new points that should be added to the submap of shape (N)
     """
+    # 函数首先检查 frustum_points 是否为空，如果为空，则直接返回所有新点的索引，因为在当前视锥体中没有其他点，所有新点都应该添加到子地图中。
     if frustum_points.shape[0] == 0:
         return torch.arange(new_pts.shape[0])
     if device == "cpu":
         pts_index = faiss.IndexFlatL2(3)
     else:
         pts_index = faiss.index_cpu_to_gpu(faiss.StandardGpuResources(), 0, faiss.IndexFlatL2(3))
+    # 将 frustum_points 和 new_pts 移动到指定的计算设备上，并将 frustum_points 添加到 Faiss 索引中。
     frustum_points = frustum_points.to(device)
     new_pts = new_pts.to(device)
     pts_index.add(frustum_points)
 
+    # split函数，用于将一个张量沿着指定的维度（这里是0维，即按行）分割成多个小张量。
+    #  将张量 new_pts 沿着行方向分割成多个小张量，每个小张量包含的行数是 65535 行（或者更少，如果 new_pts 的行数不是 65535 的倍数）。
     split_pos = torch.split(new_pts, 65535, dim=0)
     distances, ids = [], []
+    # 函数遍历 new_pts
     for split_p in split_pos:
+        # 使用 Faiss 索引搜索最近的8个邻居点，并计算它们与新点之间的距离。
         distance, id = pts_index.search(split_p.float(), 8)
         distances.append(distance)
         ids.append(id)
     distances = torch.cat(distances, dim=0)
     ids = torch.cat(ids, dim=0)
+    # 统计每个新点周围的邻居数。
     neighbor_num = (distances < radius).sum(axis=1).int()
     pts_index.reset()
+    # 最后，函数重置 Faiss 索引，并返回那些周围没有邻居的新点的索引，这些点应该被添加到子地图中。
     return torch.where(neighbor_num == 0)[0]
 
 
