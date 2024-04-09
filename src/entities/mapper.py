@@ -108,25 +108,44 @@ class Mapper(object):
             np.ndarray: An array of 3D points where new Gaussians will be initialized, with shape (N, 3)
 
         """
-        # 创建了一个点云。该点云表示了图像中的三维点坐标以及对应的点的颜色。
+        # 根据pose、颜色、深度、内参获取点云。该点云包含了在世界坐标系下的三维点坐标以及对应的点的颜色。
         pts = create_point_cloud(gt_color, 1.005 * gt_depth, intrinsics, estimate_c2w)
+
+        # 将深度图像展平成一维数组。
         flat_gt_depth = gt_depth.flatten()
+        # 生成一个非零深度值掩码，用于过滤掉深度图像中的零深度像素。
         non_zero_depth_mask = flat_gt_depth > 0.  # need filter if zero depth pixels in gt_depth
+
+        # 获取了种子点掩码中为真的像素位置
         valid_ids = np.flatnonzero(seeding_mask)
+        
+        # 根据是否为新的子地图，进行不同的采样策略：
         if is_new_submap:
+            # 如果是新的子地图，首先确定需要采样的点的数量，然后从点云中均匀采样和基于梯度的采样，最后将两者结合，并加上种子点掩码中为真的像素位置，去重并得到最终的采样点。
+
+            # 首先确定需要采样的点的数量。如果 self.new_submap_points_num 小于 0，则采样所有点；否则，随机选择 self.new_submap_points_num 个点。
             if self.new_submap_points_num < 0:
-                uniform_ids = np.arange(pts.shape[0])
+                uniform_ids = np.arange(pts.shape[0]) #生成的所有的点
             else:
-                uniform_ids = np.random.choice(pts.shape[0], self.new_submap_points_num, replace=False)
+                uniform_ids = np.random.choice(pts.shape[0], self.new_submap_points_num, replace=False) #随机选择new_submap_points_num个点
+            
+            # 基于颜色梯度进行采样，使用函数 sample_pixels_based_on_gradient()，该函数从彩色图像中根据梯度（根据梯度值的大小）选择一定数量的像素。
             gradient_ids = sample_pixels_based_on_gradient(gt_color, self.new_submap_gradient_points_num)
+            # 将两者的索引合并为一个数组 combined_ids（包含了需要采样的点以及梯度值较大的点）。
             combined_ids = np.concatenate((uniform_ids, gradient_ids))
+            # 再结合掩码中值有效的点
             combined_ids = np.concatenate((combined_ids, valid_ids))
+            # 去重得到最终的采样点的索引 sample_ids。
             sample_ids = np.unique(combined_ids)
         else:
+            # 如果不是新的子地图，根据设定的采样点数量以及有效的种子点，进行随机采样。
             if self.new_frame_sample_size < 0 or len(valid_ids) < self.new_frame_sample_size:
-                sample_ids = valid_ids
+                # 如果 self.new_frame_sample_size 小于 0 或者有效的种子点数量小于 self.new_frame_sample_size，则直接将有效的种子点作为采样点。
+                sample_ids = valid_ids #掩码中值有效的点
             else:
+                # 否则，从有效的种子点中随机选择 self.new_frame_sample_size 个点作为采样点。
                 sample_ids = np.random.choice(valid_ids, size=self.new_frame_sample_size, replace=False)
+        # 最终，根据采样点的索引，从点云中提取对应的坐标，并返回作为新的高斯模型的均值点。
         sample_ids = sample_ids[non_zero_depth_mask[sample_ids]]
         return pts[sample_ids, :].astype(np.float32)
 

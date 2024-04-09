@@ -167,7 +167,7 @@ def compute_frustum_point_ids(pts: torch.Tensor, frustum_corners: torch.Tensor, 
 
 
 def sample_pixels_based_on_gradient(image: np.ndarray, num_samples: int) -> np.ndarray:
-    """ Samples pixel indices based on the gradient magnitude of an image.
+    """ Samples pixel indices based on the gradient magnitude of an image.（根据梯度值来采样）
     Args:
         image: The image from which to sample pixels.
         num_samples: The number of pixels to sample.
